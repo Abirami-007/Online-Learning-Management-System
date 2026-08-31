@@ -1,0 +1,63 @@
+# OLMS Project Walkthrough & Execution Guide
+
+The React frontend for the Online Learning Management System has been fully created, built, and launched. It is connected via Vite proxy to the Spring Boot backend on port 8080.
+
+---
+
+## 🚀 How to Run the Project
+
+### 1. Backend (Spring Boot)
+- **Directory**: `c:\Users\abira\Downloads\olms-backend\olms-backend`
+- **Command**:
+  ```powershell
+  .\mvnw.cmd clean spring-boot:run
+  ```
+- **Backend URL**: `http://localhost:8080`
+
+---
+
+### 2. Frontend (React + Vite)
+- **Directory**: `c:\Users\abira\Downloads\olms-backend\olms-frontend`
+- **Command**:
+  ```powershell
+  npm run dev
+  ```
+- **Local URL**: **`http://localhost:5173/`**
+
+---
+
+## 💻 Implemented Features (SRS Aligned)
+
+1. **Landing & Home Page (`/`)**:
+   - Platform overview, statistics counter, featured course catalog, navigation.
+2. **Authentication (`/login`)**:
+   - JWT-based authentication with Sign In & Registration tabs.
+   - Support for **Learner**, **Instructor**, and **Admin** roles.
+3. **Course Catalog (`/catalog`)**:
+   - Course grid with real-time text search, category filters, and difficulty level filters.
+4. **Course Details (`/courses/:id`)**:
+   - Complete curriculum outline with expandable module accordions, lesson lists, assessment markers, and dynamic enrollment.
+5. **Course Player (`/learn/:courseId`)**:
+   - Lesson navigation sidebar, integrated video player (YouTube/embed support), text content viewer, and progress checkmarks.
+6. **MCQ Quiz & Assessment (`/assessments/:id`)**:
+   - Quiz interface with live countdown timer, radio options for options A-D, auto-scoring, and immediate submission.
+7. **Assessment Results (`/assessments/:id/results`)**:
+   - Score overview, pass/fail status badge, percentage calculation, and detailed answer review with correct/incorrect highlights.
+8. **Learner Dashboard (`/dashboard`)**:
+   - Stat cards (Total Courses, Enrollments, Completed, Unread Alerts), quick actions, and enrolled course shortcuts.
+9. **Notifications Inbox (`/notifications`)**:
+   - Interactive notification list with read/unread indicators, mark as read, and delete functionality.
+10. **Certificates (`/certificates`)**:
+    - Earned achievement cards with issue dates and certificate links.
+11. **Discussion Forum (`/discussions`)**:
+    - Threaded discussion listing with modal/form for creating new lesson discussions.
+12. **Admin Course Management (`/admin/courses`)**:
+    - Full CRUD data table for creating, editing, and deleting courses with modal dialogs.
+13. **Admin User & Audit Logs (`/admin/users`)**:
+    - Audit log monitoring table detailing platform user actions, timestamps, and entity changes.
+
+---
+
+## 🎨 Visual Design Highlights
+- **Glassmorphism Theme**: Dark indigo/cyan color palette matching modern web design standards (`#0f172a` dark background, `#4f46e5` primary indigo, `#06b6d4` cyan accents).
+- **Responsive Layout**: Mobile hamburger menu, flexible CSS grid system, and adaptive sidebar for course learning player.
