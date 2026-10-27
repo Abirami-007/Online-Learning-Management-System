@@ -9,4 +9,6 @@ public interface CourseModuleRepository
         extends JpaRepository<CourseModule, Long> {
 
     List<CourseModule> findByCourseId(Long courseId);
-}
+
+    List<CourseModule> findByCourseIdOrderByModuleOrderAsc(Long courseId);
+}

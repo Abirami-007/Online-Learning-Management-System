@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate, useLocation } from 'react-router-dom';
+import { useParams, useNavigate, useLocation, Link } from 'react-router-dom';
 import { getAssessmentById } from '../api/assessmentApi';
 import { getQuestionsByAssessmentId } from '../api/questionApi';
 import { createAttempt } from '../api/attemptApi';
@@ -15,6 +15,7 @@ export default function AssessmentPage() {
   const [answers, setAnswers] = useState({});
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [lockedError, setLockedError] = useState('');
   const [timeLeft, setTimeLeft] = useState(1800);
 
   // Store courseId from state or sessionStorage
@@ -27,14 +28,26 @@ export default function AssessmentPage() {
   }, [location.state]);
 
   useEffect(() => {
+    setLoading(true);
+    setLockedError('');
     Promise.all([
       getAssessmentById(id),
-      getQuestionsByAssessmentId(id).catch(() => ({ data: [] })),
+      getQuestionsByAssessmentId(id).catch(err => {
+        if (err?.response?.status === 403) {
+          setLockedError(err?.response?.data?.error || 'This assessment is locked. Complete all required lessons in this module first.');
+        }
+        return { data: [] };
+      }),
     ]).then(([aRes, qRes]) => {
       setAssessment(aRes.data);
       setQuestions(qRes.data || []);
       setLoading(false);
-    }).catch(() => setLoading(false));
+    }).catch(err => {
+      if (err?.response?.status === 403) {
+        setLockedError(err?.response?.data?.error || 'This assessment is locked.');
+      }
+      setLoading(false);
+    });
   }, [id]);
 
   useEffect(() => {
@@ -70,6 +83,28 @@ export default function AssessmentPage() {
   const formatTime = (s) => `${Math.floor(s / 60).toString().padStart(2, '0')}:${(s % 60).toString().padStart(2, '0')}`;
 
   if (loading) return <div className="page-loader"><div className="spinner" /></div>;
+
+  if (lockedError) {
+    return (
+      <div className="quiz-container">
+        <div className="card-glass" style={{ textAlign: 'center', padding: '40px 24px', margin: '40px auto', maxWidth: '600px' }}>
+          <div style={{ fontSize: '3rem', marginBottom: '16px' }}>🔒</div>
+          <h2 style={{ fontSize: '1.5rem', fontWeight: 700, marginBottom: '12px', color: '#ef4444' }}>
+            Assessment Locked
+          </h2>
+          <p style={{ color: 'var(--text-secondary)', marginBottom: '24px', lineHeight: 1.6 }}>
+            {lockedError}
+          </p>
+          {courseId && (
+            <Link to={`/learn/${courseId}`} className="btn btn-primary btn-lg">
+              ← Return to Course Player
+            </Link>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   if (!assessment) return <div className="empty-state"><h3>Assessment not found</h3></div>;
 
   return (

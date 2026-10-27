@@ -1,156 +1,221 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from './AuthContext';
 import { getAllCourses } from '../api/courseApi';
-import { getModulesByCourseId } from '../api/moduleApi';
-import { getLessonsByModuleId } from '../api/lessonApi';
 import { getMyCertificates } from '../api/certificateApi';
+import { getCourseProgressApi, completeLessonApi } from '../api/progressApi';
+import { getMyEnrollments, createEnrollment } from '../api/enrollmentApi';
 
 const CourseProgressContext = createContext(null);
 
 export function CourseProgressProvider({ children }) {
   const { user } = useAuth();
-  // Unique storage prefix per user — prevents cross-user data leakage in localStorage
-  const storagePrefix = user?.id ? `olms_completed_lessons_${user.id}_` : 'olms_completed_lessons_guest_';
-  // Maps: courseId -> array of completed lesson IDs
-  const [completedMap, setCompletedMap] = useState({});
-  // Maps: courseId -> total lesson count
-  const [totalLessonsMap, setTotalLessonsMap] = useState({});
+
+  // Maps: courseId -> CourseProgressDto (from backend, contains modules+lessons+locks)
+  const [progressMap, setProgressMap] = useState({});
   // Set of course IDs that have certificates
   const [certifiedCourseIds, setCertifiedCourseIds] = useState(new Set());
+  // Enrollments array and set of enrolled course IDs
+  const [enrollments, setEnrollments] = useState([]);
+  const [enrolledCourseIds, setEnrolledCourseIds] = useState(new Set());
   const [loaded, setLoaded] = useState(false);
 
-  // On mount (or when user changes), load ALL course data and localStorage state
+  // ─── Load initial data ─────────────────────────────────────────────────────
+
   useEffect(() => {
-    // Reset state on user change
-    setCompletedMap({});
-    setTotalLessonsMap({});
+    setProgressMap({});
     setCertifiedCourseIds(new Set());
+    setEnrollments([]);
+    setEnrolledCourseIds(new Set());
     setLoaded(false);
+
+    if (!user?.id) {
+      setLoaded(true);
+      return;
+    }
+
     (async () => {
       try {
-        const [coursesRes, certsRes] = await Promise.all([
+        const [coursesRes, certsRes, enrollRes] = await Promise.all([
           getAllCourses().catch(() => ({ data: [] })),
           getMyCertificates().catch(() => ({ data: [] })),
+          getMyEnrollments().catch(() => ({ data: [] })),
         ]);
 
         const courses = coursesRes.data || [];
         const certs = certsRes.data || [];
+        const enrollList = enrollRes.data || [];
 
-        // Build certified course IDs
+        // Certified course IDs
         const certIds = new Set(certs.map(c => c.course?.id).filter(Boolean));
         setCertifiedCourseIds(certIds);
 
-        // Build totalLessons and completedLessons maps per course
-        const totals = {};
-        const completed = {};
+        // Enrolled course IDs
+        const enrolledIds = new Set(enrollList.map(e => Number(e.courseId)).filter(Boolean));
+        setEnrollments(enrollList);
+        setEnrolledCourseIds(enrolledIds);
 
-        await Promise.all(courses.map(async (course) => {
-          const cid = course.id;
-
-                  // Load saved completed lessons from localStorage (keyed by userId)
-          try {
-            const saved = localStorage.getItem(`${storagePrefix}${cid}`);
-            completed[cid] = saved ? JSON.parse(saved) : [];
-          } catch {
-            completed[cid] = [];
-          }
-
-          // Fetch total lesson count
-          try {
-            const modsRes = await getModulesByCourseId(cid);
-            const mods = modsRes.data || [];
-            let count = 0;
-            for (const m of mods) {
-              try {
-                const lr = await getLessonsByModuleId(m.id);
-                count += (lr.data || []).length;
-              } catch {}
+        // Fetch progress trees for all courses in parallel
+        const entries = await Promise.all(
+          courses.map(async (course) => {
+            try {
+              const res = await getCourseProgressApi(user.id, course.id);
+              return [course.id, res.data];
+            } catch {
+              return [course.id, null];
             }
-            totals[cid] = count;
-          } catch {
-            totals[cid] = 0;
-          }
-        }));
+          })
+        );
 
-        setTotalLessonsMap(totals);
-        setCompletedMap(completed);
+        const map = {};
+        for (const [cid, dto] of entries) {
+          if (dto) map[cid] = dto;
+        }
+        setProgressMap(map);
       } catch {
-        // Fail silently — progress just stays empty
+        // Fail silently
       } finally {
         setLoaded(true);
       }
     })();
-  }, [user?.id]);  // Re-run whenever the logged-in user changes
+  }, [user?.id]);
 
-  // Mark a lesson as completed or uncompleted for a given course
-  const toggleLessonComplete = useCallback((courseId, lessonId) => {
-    setCompletedMap(prev => {
-      const current = prev[courseId] || [];
-      let updated;
-      if (current.includes(lessonId)) {
-        updated = current.filter(id => id !== lessonId);
-      } else {
-        updated = [...current, lessonId];
-      }
-      const next = { ...prev, [courseId]: updated };
+  // ─── Refresh a single course progress tree ─────────────────────────────────
 
-      // Persist to localStorage (scoped by userId)
-      try {
-        localStorage.setItem(`${storagePrefix}${courseId}`, JSON.stringify(updated));
-      } catch {}
+  const refreshCourseProgress = useCallback(async (courseId) => {
+    if (!user?.id) return null;
+    try {
+      const res = await getCourseProgressApi(user.id, courseId);
+      setProgressMap(prev => ({ ...prev, [courseId]: res.data }));
+      return res.data;
+    } catch {
+      return null;
+    }
+  }, [user?.id]);
 
-      return next;
-    });
-  }, [storagePrefix]);
+  // ─── Mark lesson complete (calls backend, then refreshes the tree) ─────────
 
-  // Get completed lesson IDs for a specific course
+  const completeLesson = useCallback(async (courseId, lessonId) => {
+    if (!user?.id) return null;
+    try {
+      await completeLessonApi(user.id, lessonId);
+      return await refreshCourseProgress(courseId);
+    } catch (err) {
+      // Re-throw so the UI can show the right message (403 = locked)
+      throw err;
+    }
+  }, [user?.id, refreshCourseProgress]);
+
+  // ─── Derived helpers (read from the cached progress tree) ─────────────────
+
+  /** Returns all completed lesson IDs for a course. */
   const getCompletedLessons = useCallback((courseId) => {
-    return completedMap[courseId] || [];
-  }, [completedMap]);
+    const dto = progressMap[courseId];
+    if (!dto) return [];
+    const ids = [];
+    for (const mod of dto.modules || []) {
+      for (const lesson of mod.lessons || []) {
+        if (lesson.completed) ids.push(lesson.lessonId);
+      }
+    }
+    return ids;
+  }, [progressMap]);
 
-  // Check if a specific lesson is completed
+  /** Returns true if a specific lesson is completed. */
   const isLessonCompleted = useCallback((courseId, lessonId) => {
-    return (completedMap[courseId] || []).includes(lessonId);
-  }, [completedMap]);
+    return getCompletedLessons(courseId).includes(lessonId);
+  }, [getCompletedLessons]);
 
-  // Get the total lesson count for a course
+  /** Returns true if a specific lesson is locked. */
+  const isLessonLocked = useCallback((courseId, lessonId) => {
+    const dto = progressMap[courseId];
+    if (!dto) return false;
+    for (const mod of dto.modules || []) {
+      const lesson = (mod.lessons || []).find(l => l.lessonId === lessonId);
+      if (lesson) return lesson.locked;
+    }
+    return false;
+  }, [progressMap]);
+
+  /** Returns unlock requirement text for a locked lesson, or null. */
+  const getLessonUnlockRequirement = useCallback((courseId, lessonId) => {
+    const dto = progressMap[courseId];
+    if (!dto) return null;
+    for (const mod of dto.modules || []) {
+      const lesson = (mod.lessons || []).find(l => l.lessonId === lessonId);
+      if (lesson) return lesson.unlockRequirement || null;
+    }
+    return null;
+  }, [progressMap]);
+
+  /** Returns true if an assessment is locked. */
+  const isAssessmentLocked = useCallback((courseId, assessmentId) => {
+    const dto = progressMap[courseId];
+    if (!dto) return true;
+    for (const mod of dto.modules || []) {
+      const a = (mod.assessments || []).find(a => a.assessmentId === assessmentId);
+      if (a) return a.locked;
+    }
+    return true;
+  }, [progressMap]);
+
+  /** Returns true if an assessment is passed. */
+  const isAssessmentPassed = useCallback((courseId, assessmentId) => {
+    const dto = progressMap[courseId];
+    if (!dto) return false;
+    for (const mod of dto.modules || []) {
+      const a = (mod.assessments || []).find(a => a.assessmentId === assessmentId);
+      if (a) return a.passed;
+    }
+    return false;
+  }, [progressMap]);
+
+  /** Returns true if a module is locked. */
+  const isModuleLocked = useCallback((courseId, moduleId) => {
+    const dto = progressMap[courseId];
+    if (!dto) return false;
+    const mod = (dto.modules || []).find(m => m.moduleId === moduleId);
+    return mod ? mod.locked : false;
+  }, [progressMap]);
+
+  /** Returns true if a module is completed (lessons done AND assessment passed). */
+  const isModuleCompleted = useCallback((courseId, moduleId) => {
+    const dto = progressMap[courseId];
+    if (!dto) return false;
+    const mod = (dto.modules || []).find(m => m.moduleId === moduleId);
+    return mod ? mod.completed : false;
+  }, [progressMap]);
+
+  /** Returns the progress percentage for a course (0-100). */
+  const getCourseProgress = useCallback((courseId) => {
+    const dto = progressMap[courseId];
+    return dto?.progressPercent ?? 0;
+  }, [progressMap]);
+
+  /** Returns total lesson count for a course. */
   const getTotalLessons = useCallback((courseId) => {
-    return totalLessonsMap[courseId] || 0;
-  }, [totalLessonsMap]);
+    return progressMap[courseId]?.totalLessons ?? 0;
+  }, [progressMap]);
 
-  // Check if a course is fully completed (100% lessons done OR has certificate)
+  /** Returns true if a course is fully completed. */
   const isCourseCompleted = useCallback((courseId) => {
     if (certifiedCourseIds.has(courseId)) return true;
-    const total = totalLessonsMap[courseId] || 0;
-    const completed = (completedMap[courseId] || []).length;
-    return total > 0 && completed >= total;
-  }, [completedMap, totalLessonsMap, certifiedCourseIds]);
+    const dto = progressMap[courseId];
+    if (!dto) return false;
+    return dto.totalLessons > 0 && dto.completedLessons >= dto.totalLessons;
+  }, [progressMap, certifiedCourseIds]);
 
-  // Count of fully completed courses across entire app
+  /** Count of distinct completed courses (by lessons OR by certificate). */
   const completedCoursesCount = useMemo(() => {
-    const ids = new Set();
-    // Courses with certificates
-    certifiedCourseIds.forEach(id => ids.add(id));
-    // Courses where all lessons are done
-    for (const [courseId, completedArr] of Object.entries(completedMap)) {
-      const cid = Number(courseId);
-      const total = totalLessonsMap[cid] || 0;
-      if (total > 0 && completedArr.length >= total) {
-        ids.add(cid);
+    const ids = new Set(certifiedCourseIds);
+    for (const [courseId, dto] of Object.entries(progressMap)) {
+      if (dto?.totalLessons > 0 && dto.completedLessons >= dto.totalLessons) {
+        ids.add(Number(courseId));
       }
     }
     return ids.size;
-  }, [completedMap, totalLessonsMap, certifiedCourseIds]);
+  }, [progressMap, certifiedCourseIds]);
 
-  // Get progress percentage for a specific course
-  const getCourseProgress = useCallback((courseId) => {
-    const total = totalLessonsMap[courseId] || 0;
-    const completed = (completedMap[courseId] || []).length;
-    if (total === 0) return 0;
-    return Math.round((completed / total) * 100);
-  }, [completedMap, totalLessonsMap]);
-
-  // Reload certificates (e.g., after passing a quiz)
+  /** Reload certificates after passing a quiz. */
   const refreshCertificates = useCallback(async () => {
     try {
       const certsRes = await getMyCertificates();
@@ -159,22 +224,99 @@ export function CourseProgressProvider({ children }) {
     } catch {}
   }, []);
 
+  /** Check if the learner is enrolled in a specific course. */
+  const isEnrolled = useCallback((courseId) => {
+    if (!courseId) return false;
+    return enrolledCourseIds.has(Number(courseId));
+  }, [enrolledCourseIds]);
+
+  /** Re-fetch enrollments from backend. */
+  const refreshEnrollments = useCallback(async () => {
+    if (!user?.id) {
+      setEnrollments([]);
+      setEnrolledCourseIds(new Set());
+      return [];
+    }
+    try {
+      const res = await getMyEnrollments();
+      const data = res.data || [];
+      const set = new Set(data.map(e => Number(e.courseId)).filter(Boolean));
+      setEnrollments(data);
+      setEnrolledCourseIds(set);
+      return data;
+    } catch {
+      return [];
+    }
+  }, [user?.id]);
+
+  /** Enroll in a course, update state immediately, and refresh progression tree. */
+  const enrollInCourse = useCallback(async (courseId) => {
+    if (!user?.id) throw new Error('Authentication required');
+    const cid = Number(courseId);
+    const res = await createEnrollment({ courseId: cid });
+    const newEnrollment = res.data;
+
+    // Immediately update state without waiting for page reload
+    setEnrolledCourseIds(prev => new Set([...prev, cid]));
+    setEnrollments(prev => {
+      const exists = prev.some(e => Number(e.courseId) === cid);
+      return exists ? prev : [...prev, newEnrollment];
+    });
+
+    // Refresh course progress tree so lessons/modules unlock immediately
+    await refreshCourseProgress(cid);
+    return newEnrollment;
+  }, [user?.id, refreshCourseProgress]);
+
+  // ─── Backward-compat alias (CoursePlayerPage uses toggleLessonComplete) ────
+
+  /**
+   * Replaces the old localStorage toggle.
+   * Now calls the backend and refreshes the progress tree.
+   * Returns the error so callers can handle 403 (lesson locked).
+   */
+  const toggleLessonComplete = useCallback(async (courseId, lessonId) => {
+    return completeLesson(courseId, lessonId);
+  }, [completeLesson]);
+
   const value = useMemo(() => ({
     loaded,
-    completedMap,
-    totalLessonsMap,
-    toggleLessonComplete,
+    progressMap,
+    certifiedCourseIds,
+    // enrollments state & actions
+    enrollments,
+    enrolledCourseIds,
+    isEnrolled,
+    enrollInCourse,
+    refreshEnrollments,
+    // completion helpers
     getCompletedLessons,
     isLessonCompleted,
+    getCourseProgress,
     getTotalLessons,
     isCourseCompleted,
     completedCoursesCount,
-    getCourseProgress,
+    // lock & module helpers
+    isLessonLocked,
+    getLessonUnlockRequirement,
+    isAssessmentLocked,
+    isAssessmentPassed,
+    isModuleLocked,
+    isModuleCompleted,
+    // actions
+    completeLesson,
+    toggleLessonComplete,
+    refreshCourseProgress,
     refreshCertificates,
-    certifiedCourseIds,
-  }), [loaded, completedMap, totalLessonsMap, toggleLessonComplete, getCompletedLessons,
-       isLessonCompleted, getTotalLessons, isCourseCompleted, completedCoursesCount,
-       getCourseProgress, refreshCertificates, certifiedCourseIds]);
+  }), [
+    loaded, progressMap, certifiedCourseIds,
+    enrollments, enrolledCourseIds, isEnrolled, enrollInCourse, refreshEnrollments,
+    getCompletedLessons, isLessonCompleted, getCourseProgress,
+    getTotalLessons, isCourseCompleted, completedCoursesCount,
+    isLessonLocked, getLessonUnlockRequirement, isAssessmentLocked,
+    isAssessmentPassed, isModuleLocked, isModuleCompleted,
+    completeLesson, toggleLessonComplete, refreshCourseProgress, refreshCertificates,
+  ]);
 
   return (
     <CourseProgressContext.Provider value={value}>

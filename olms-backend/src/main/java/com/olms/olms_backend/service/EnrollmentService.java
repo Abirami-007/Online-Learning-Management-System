@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.Optional;
 
 @Service
 public class EnrollmentService {
@@ -26,15 +27,14 @@ public class EnrollmentService {
         this.jwtUtil = jwtUtil;
     }
 
-    // CREATE — prevents duplicate enrollments
+    // CREATE — enrolls learner, idempotent if already enrolled
     public Enrollment createEnrollment(Enrollment enrollment, String authHeader) {
-        if (authHeader != null && authHeader.startsWith("Bearer ")) {
+        if (authHeader != null && authHeader.trim().startsWith("Bearer ")) {
             try {
-                String token = authHeader.replace("Bearer ", "");
+                String token = authHeader.trim().substring(7).trim();
                 String email = jwtUtil.extractEmail(token);
-                userRepository.findByEmail(email).ifPresent(u -> enrollment.setUserId(u.getId()));
-            } catch (Exception e) {
-                // Ignore and fallback to provided userId if parsing fails
+                userRepository.findByEmailIgnoreCase(email).ifPresent(u -> enrollment.setUserId(u.getId()));
+            } catch (Exception ignored) {
             }
         }
         if (enrollment.getUserId() == null) {
@@ -43,14 +43,25 @@ public class EnrollmentService {
                     "User ID is required for enrollment"
             );
         }
-        boolean alreadyEnrolled = enrollmentRepository
-                .existsByUserIdAndCourseId(enrollment.getUserId(), enrollment.getCourseId());
-        if (alreadyEnrolled) {
+        if (enrollment.getCourseId() == null) {
             throw new ResponseStatusException(
-                    HttpStatus.CONFLICT,
-                    "User is already enrolled in this course"
+                    HttpStatus.BAD_REQUEST,
+                    "Course ID is required for enrollment"
             );
         }
+
+        Optional<Enrollment> existingOpt = enrollmentRepository
+                .findByUserIdAndCourseId(enrollment.getUserId(), enrollment.getCourseId());
+        if (existingOpt.isPresent()) {
+            Enrollment existing = existingOpt.get();
+            if (!existing.isActive()) {
+                existing.setActive(true);
+                return enrollmentRepository.save(existing);
+            }
+            return existing; // Idempotent: return existing active enrollment
+        }
+
+        enrollment.setActive(true);
         return enrollmentRepository.save(enrollment);
     }
 
@@ -59,13 +70,32 @@ public class EnrollmentService {
         return enrollmentRepository.findAll();
     }
 
-    // GET ENROLLMENTS FOR CURRENT USER (from JWT)
-    public List<Enrollment> getEnrollmentsForCurrentUser(String authHeader) {
-        String token = authHeader.replace("Bearer ", "");
-        String email = jwtUtil.extractEmail(token);
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNAUTHORIZED, "User not found"));
-        return enrollmentRepository.findByUserId(user.getId());
+    // GET ENROLLMENTS FOR CURRENT USER (from JWT or fallback userId)
+    public List<Enrollment> getEnrollmentsForCurrentUser(String authHeader, Long userIdFallback) {
+        Long resolvedUserId = null;
+        if (authHeader != null && authHeader.trim().startsWith("Bearer ")) {
+            try {
+                String token = authHeader.trim().substring(7).trim();
+                String email = jwtUtil.extractEmail(token);
+                User user = userRepository.findByEmailIgnoreCase(email).orElse(null);
+                if (user != null) {
+                    resolvedUserId = user.getId();
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        if (resolvedUserId == null && userIdFallback != null) {
+            resolvedUserId = userIdFallback;
+        }
+        if (resolvedUserId == null) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Authentication required to fetch enrollments");
+        }
+        return enrollmentRepository.findByUserId(resolvedUserId);
+    }
+
+    public boolean isUserEnrolled(Long userId, Long courseId) {
+        if (userId == null || courseId == null) return false;
+        return enrollmentRepository.existsByUserIdAndCourseId(userId, courseId);
     }
 
     // GET ONE

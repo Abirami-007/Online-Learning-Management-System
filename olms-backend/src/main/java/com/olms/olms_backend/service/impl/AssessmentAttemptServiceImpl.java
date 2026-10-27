@@ -1,13 +1,19 @@
-package com.olms.olms_backend.service;
+package com.olms.olms_backend.service.impl;
+
+import com.olms.olms_backend.service.*;
 
 import com.olms.olms_backend.entity.Assessment;
 import com.olms.olms_backend.entity.AssessmentAttempt;
 import com.olms.olms_backend.entity.Certificate;
 import com.olms.olms_backend.entity.Course;
+import com.olms.olms_backend.entity.Lesson;
 import com.olms.olms_backend.entity.User;
+import com.olms.olms_backend.exception.ContentAccessDeniedException;
 import com.olms.olms_backend.repository.AssessmentAttemptRepository;
 import com.olms.olms_backend.repository.AssessmentRepository;
 import com.olms.olms_backend.repository.CertificateRepository;
+import com.olms.olms_backend.repository.LessonProgressRepository;
+import com.olms.olms_backend.repository.LessonRepository;
 import com.olms.olms_backend.repository.UserRepository;
 
 import org.springframework.stereotype.Service;
@@ -24,17 +30,29 @@ public class AssessmentAttemptServiceImpl
     private final AssessmentRepository assessmentRepository;
     private final UserRepository userRepository;
     private final CertificateRepository certificateRepository;
+    private final LessonRepository lessonRepository;
+    private final LessonProgressRepository lessonProgressRepository;
+    private final LessonProgressService lessonProgressService;
+    private final com.olms.olms_backend.repository.EnrollmentRepository enrollmentRepository;
 
     public AssessmentAttemptServiceImpl(
             AssessmentAttemptRepository attemptRepository,
             AssessmentRepository assessmentRepository,
             UserRepository userRepository,
-            CertificateRepository certificateRepository) {
+            CertificateRepository certificateRepository,
+            LessonRepository lessonRepository,
+            LessonProgressRepository lessonProgressRepository,
+            LessonProgressService lessonProgressService,
+            com.olms.olms_backend.repository.EnrollmentRepository enrollmentRepository) {
 
         this.attemptRepository = attemptRepository;
         this.assessmentRepository = assessmentRepository;
         this.userRepository = userRepository;
         this.certificateRepository = certificateRepository;
+        this.lessonRepository = lessonRepository;
+        this.lessonProgressRepository = lessonProgressRepository;
+        this.lessonProgressService = lessonProgressService;
+        this.enrollmentRepository = enrollmentRepository;
     }
 
     @Override
@@ -78,11 +96,27 @@ public class AssessmentAttemptServiceImpl
         attempt.setAssessment(assessment);
         attempt.setUser(user);
 
+        // ── ENROLLMENT & LOCK GUARD ──
+        Course course = (assessment.getModule() != null) ? assessment.getModule().getCourse() : null;
+        boolean isBypassRole = lessonProgressService.isInstructorOwnerOrAdmin(user, course);
+
+        if (!isBypassRole) {
+            if (course != null && !enrollmentRepository.existsByUserIdAndCourseId(userId, course.getId())) {
+                throw new ContentAccessDeniedException(
+                        "Enrollment required: You must be enrolled in this course to take this assessment.");
+            }
+            if (!lessonProgressService.isAssessmentUnlocked(userId, assessmentId)) {
+                throw new ContentAccessDeniedException(
+                        "Cannot attempt assessment: all required lessons in module '"
+                        + (assessment.getModule() != null ? assessment.getModule().getTitle() : "")
+                        + "' must be completed first.");
+            }
+        }
+
         AssessmentAttempt savedAttempt = attemptRepository.save(attempt);
 
         // Auto-generate certificate if attempt is passed
         if (Boolean.TRUE.equals(savedAttempt.getPassed())) {
-            Course course = (assessment.getModule() != null) ? assessment.getModule().getCourse() : null;
             if (course != null) {
                 boolean exists = certificateRepository.existsByUserIdAndCourseId(user.getId(), course.getId());
                 if (!exists) {

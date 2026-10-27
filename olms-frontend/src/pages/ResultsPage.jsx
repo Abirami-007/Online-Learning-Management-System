@@ -8,13 +8,15 @@ export default function ResultsPage() {
   const { id } = useParams();
   const { state } = useLocation();
   const [nextAssessment, setNextAssessment] = useState(null);
-  const { refreshCertificates } = useCourseProgress();
+  const { refreshCertificates, refreshCourseProgress } = useCourseProgress();
 
   const storedCourseId = sessionStorage.getItem('olms_last_course_id');
   const courseId = state?.courseId || storedCourseId;
 
   useEffect(() => {
-    // Refresh certificates so dashboard picks up any new ones from passed quizzes
+    if (courseId) {
+      refreshCourseProgress(courseId);
+    }
     if (state?.passed) {
       refreshCertificates();
     }
@@ -42,7 +44,7 @@ export default function ResultsPage() {
         }
       } catch {}
     })();
-  }, [courseId, id]);
+  }, [courseId, id, refreshCourseProgress, refreshCertificates]);
 
   if (!state) return (
     <div className="empty-state">
@@ -72,10 +74,12 @@ export default function ResultsPage() {
           {passed ? '🎉' : '😔'}
         </div>
         <h1 style={{ fontSize: '2rem', fontWeight: 800, marginBottom: '8px', color: passed ? '#10b981' : '#ef4444' }}>
-          {passed ? 'Congratulations!' : 'Keep Trying!'}
+          {passed ? 'Congratulations!' : 'Assessment Failed — Keep Trying!'}
         </h1>
-        <p style={{ color: 'var(--text-secondary)', marginBottom: '24px', fontSize: '1rem' }}>
-          {passed ? 'You successfully passed the assessment!' : 'You did not meet the passing score requirements.'}
+        <p style={{ color: 'var(--text-secondary)', marginBottom: '24px', fontSize: '1rem', maxWidth: '600px', margin: '0 auto 24px' }}>
+          {passed
+            ? 'You successfully passed the assessment! The next module is now unlocked.'
+            : 'You did not meet the passing score. The next module remains locked until you pass this assessment. Your completed lesson progress is safe and has not been reset. You can retake the quiz below.'}
         </p>
 
         <div style={{ display: 'flex', justifyContent: 'center', gap: '40px', marginBottom: '28px' }}>
@@ -85,21 +89,21 @@ export default function ResultsPage() {
         </div>
 
         <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
-          {nextAssessment ? (
-            <Link 
-              to={`/assessments/${nextAssessment.id}`} 
-              state={{ courseId }} 
-              className="btn btn-primary btn-lg"
-              style={{ display: 'flex', alignItems: 'center', gap: '8px', boxShadow: '0 4px 14px rgba(79,70,229,0.3)' }}>
-              Next Quiz: {nextAssessment.title} →
+          {passed && courseId && (
+            <Link to={`/learn/${courseId}`} className="btn btn-primary btn-lg" style={{ boxShadow: '0 4px 14px rgba(79,70,229,0.3)' }}>
+              Continue to Next Module →
             </Link>
-          ) : (
-            courseId && (
-              <Link to={`/learn/${courseId}`} className="btn btn-primary btn-lg">
-                Continue Course →
-              </Link>
-            )
           )}
+
+          {!passed && courseId && (
+            <Link to={`/learn/${courseId}`} className="btn btn-primary btn-lg">
+              Back to Course Player
+            </Link>
+          )}
+
+          <Link to={`/assessments/${id}`} className="btn btn-secondary btn-lg">
+            {passed ? 'Retake Quiz' : 'Retry Quiz Now'}
+          </Link>
 
           {passed && (
             <Link to="/certificates" className="btn btn-success btn-lg">
@@ -107,10 +111,6 @@ export default function ResultsPage() {
             </Link>
           )}
 
-          <Link to={`/assessments/${id}`} className="btn btn-secondary btn-lg">
-            Retry Quiz
-          </Link>
-          
           <Link to="/dashboard" className="btn btn-secondary btn-lg">
             Dashboard
           </Link>

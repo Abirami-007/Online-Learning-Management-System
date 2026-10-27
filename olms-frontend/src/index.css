@@ -301,9 +301,35 @@ img { max-width: 100%; }
 .player-sidebar { background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px; overflow-y: auto; max-height: calc(100vh - 160px); position: sticky; top: 88px; }
 .player-content { min-width: 0; }
 .video-container { background: #000; border-radius: var(--radius-lg); overflow: hidden; margin-bottom: 24px; aspect-ratio: 16/9; display: flex; align-items: center; justify-content: center; }
-.video-container iframe { width: 100%; height: 100%; border: none; }
+.video-container iframe,
+.video-container video { width: 100%; height: 100%; border: none; object-fit: contain; }
 .video-placeholder { color: var(--text-muted); text-align: center; padding: 40px; }
 .lesson-content-area { line-height: 1.8; font-size: 0.95rem; color: var(--text-secondary); }
+
+/* Lesson Checkbox */
+.lesson-check {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid rgba(148, 163, 184, 0.4);
+  background: rgba(15, 23, 42, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.lesson-check:hover:not(.completed) {
+  border-color: var(--primary);
+  background: rgba(79, 70, 229, 0.2);
+}
+.lesson-check.completed {
+  background: #10b981 !important;
+  border-color: #10b981 !important;
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.35);
+  cursor: default;
+}
 
 /* Progress Bar */
 .progress-bar { height: 6px; background: rgba(255,255,255,0.08); border-radius: 3px; overflow: hidden; }

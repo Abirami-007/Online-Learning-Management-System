@@ -11,4 +11,7 @@ public interface AssessmentAttemptRepository
     List<AssessmentAttempt> findByAssessmentId(Long assessmentId);
 
     List<AssessmentAttempt> findByUserId(Long userId);
-}
+
+    boolean existsByUserIdAndAssessmentIdAndPassedTrue(
+            Long userId, Long assessmentId);
+}

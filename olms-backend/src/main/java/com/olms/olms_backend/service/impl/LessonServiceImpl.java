@@ -1,4 +1,6 @@
-package com.olms.olms_backend.service;
+package com.olms.olms_backend.service.impl;
+
+import com.olms.olms_backend.service.*;
 
 import com.olms.olms_backend.entity.CourseModule;
 import com.olms.olms_backend.entity.Lesson;
@@ -63,7 +65,7 @@ public class LessonServiceImpl implements LessonService {
     // GET LESSONS BY MODULE ID
     @Override
     public List<Lesson> getLessonsByModuleId(Long moduleId) {
-        return lessonRepository.findByModule_Id(moduleId);
+        return lessonRepository.findByModule_IdOrderByLessonOrderAsc(moduleId);
     }
 
     // UPDATE LESSON
@@ -79,11 +81,21 @@ public class LessonServiceImpl implements LessonService {
 
         Lesson updatedLesson = existingLesson.get();
 
-        updatedLesson.setTitle(lesson.getTitle());
-        updatedLesson.setDescription(lesson.getDescription());
-        updatedLesson.setContent(lesson.getContent());
-        updatedLesson.setVideoUrl(lesson.getVideoUrl());
-        updatedLesson.setLessonOrder(lesson.getLessonOrder());
+        if (lesson.getTitle() != null) {
+            updatedLesson.setTitle(lesson.getTitle());
+        }
+        if (lesson.getDescription() != null) {
+            updatedLesson.setDescription(lesson.getDescription());
+        }
+        if (lesson.getContent() != null) {
+            updatedLesson.setContent(lesson.getContent());
+        }
+        if (lesson.getVideoUrl() != null) {
+            updatedLesson.setVideoUrl(lesson.getVideoUrl());
+        }
+        if (lesson.getLessonOrder() > 0) {
+            updatedLesson.setLessonOrder(lesson.getLessonOrder());
+        }
 
         // Update module if provided
         if (lesson.getModule() != null &&
@@ -111,3 +123,4 @@ public class LessonServiceImpl implements LessonService {
         lessonRepository.deleteById(id);
     }
 }
+

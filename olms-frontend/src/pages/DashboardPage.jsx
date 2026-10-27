@@ -8,24 +8,30 @@ import { getAllNotifications } from '../api/notificationApi';
 
 export default function DashboardPage() {
   const { user, role } = useAuth();
-  const { completedCoursesCount, getCourseProgress, loaded: progressLoaded } = useCourseProgress();
+  const { 
+    enrollments, 
+    enrolledCourseIds, 
+    refreshEnrollments, 
+    completedCoursesCount, 
+    getCourseProgress, 
+    loaded: progressLoaded 
+  } = useCourseProgress();
+
   const [courses, setCourses] = useState([]);
-  const [enrollments, setEnrollments] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     Promise.all([
       getAllCourses().catch(() => ({ data: [] })),
-      getMyEnrollments().catch(() => ({ data: [] })),
       getAllNotifications().catch(() => ({ data: [] })),
-    ]).then(([c, e, n]) => {
+      refreshEnrollments().catch(() => []),
+    ]).then(([c, n]) => {
       setCourses(c.data || []);
-      setEnrollments(e.data || []);
       setNotifications(n.data || []);
       setLoading(false);
     });
-  }, []);
+  }, [user?.id, refreshEnrollments]);
 
   if (loading || !progressLoaded) return <div className="page-loader"><div className="spinner" /></div>;
 
@@ -51,7 +57,7 @@ export default function DashboardPage() {
             <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="#22d3ee" strokeWidth="2"><path d="M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="8.5" cy="7" r="4"/><path d="M20 8v6M23 11h-6"/></svg>
           </div>
           <div className="stat-value">{enrollments.length}</div>
-          <div className="stat-label">Enrollments</div>
+          <div className="stat-label">Enrolled Courses</div>
         </div>
         <div className="card stat-card">
           <div className="stat-icon" style={{ background: 'rgba(16,185,129,0.15)' }}>
@@ -69,37 +75,46 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Course Progress Overview — only enrolled courses, always show even at 0% */}
+      {/* Enrolled Courses / Course Progress Overview */}
       {(() => {
-        const enrolledCourseIds = new Set(enrollments.map(e => e.courseId));
         const enrolledCourses = courses.filter(c => enrolledCourseIds.has(c.id));
-        if (enrolledCourses.length === 0) return null;
         return (
           <>
-            <div className="page-header"><h1 style={{ fontSize: '1.3rem' }}>My Course Progress</h1></div>
-            <div className="grid grid-3" style={{ marginBottom: '32px' }}>
-              {enrolledCourses.map(course => {
-                const progress = getCourseProgress(course.id);
-                const notStarted = progress === 0;
-                return (
-                  <Link to={`/learn/${course.id}`} key={course.id} className="card" style={{ textDecoration: 'none', padding: '20px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                      <h4 style={{ fontSize: '0.95rem', fontWeight: 600, margin: 0, color: 'var(--text-primary)' }}>{course.title}</h4>
-                      <span style={{ fontSize: '0.82rem', fontWeight: 700, color: progress === 100 ? '#10b981' : notStarted ? 'var(--text-muted)' : 'var(--primary)' }}>
-                        {progress}%
-                      </span>
-                    </div>
-                    <div className="progress-bar">
-                      <div className="progress-bar-fill" style={{ width: `${progress}%` }} />
-                    </div>
-                    <div style={{ marginTop: '8px', fontSize: '0.78rem', fontWeight: 600,
-                      color: progress === 100 ? '#10b981' : notStarted ? 'var(--text-muted)' : 'var(--primary)' }}>
-                      {progress === 100 ? '✓ Course Completed' : notStarted ? '▷ Not Started — Click to Begin' : `In Progress — ${progress}% done`}
-                    </div>
-                  </Link>
-                );
-              })}
-            </div>
+            <div className="page-header"><h1 style={{ fontSize: '1.3rem' }}>My Enrolled Courses</h1></div>
+            {enrolledCourses.length === 0 ? (
+              <div className="card" style={{ padding: '24px', textAlign: 'center', marginBottom: '32px' }}>
+                <div style={{ fontSize: '2rem', marginBottom: '8px' }}>📚</div>
+                <h3 style={{ margin: '0 0 8px 0', fontSize: '1.1rem' }}>No enrolled courses yet</h3>
+                <p style={{ color: 'var(--text-muted)', margin: '0 0 16px 0', fontSize: '0.9rem' }}>
+                  Explore our catalog and enroll in courses to start your learning journey!
+                </p>
+                <Link to="/catalog" className="btn btn-primary">Browse Course Catalog</Link>
+              </div>
+            ) : (
+              <div className="grid grid-3" style={{ marginBottom: '32px' }}>
+                {enrolledCourses.map(course => {
+                  const progress = getCourseProgress(course.id);
+                  const notStarted = progress === 0;
+                  return (
+                    <Link to={`/learn/${course.id}`} key={course.id} className="card" style={{ textDecoration: 'none', padding: '20px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                        <h4 style={{ fontSize: '0.95rem', fontWeight: 600, margin: 0, color: 'var(--text-primary)' }}>{course.title}</h4>
+                        <span style={{ fontSize: '0.82rem', fontWeight: 700, color: progress === 100 ? '#10b981' : notStarted ? 'var(--text-muted)' : 'var(--primary)' }}>
+                          {progress}%
+                        </span>
+                      </div>
+                      <div className="progress-bar">
+                        <div className="progress-bar-fill" style={{ width: `${progress}%` }} />
+                      </div>
+                      <div style={{ marginTop: '8px', fontSize: '0.78rem', fontWeight: 600,
+                        color: progress === 100 ? '#10b981' : notStarted ? 'var(--text-muted)' : 'var(--primary)' }}>
+                        {progress === 100 ? '✓ Course Completed' : notStarted ? '▷ Not Started — Click to Begin' : `In Progress — ${progress}% done`}
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
           </>
         );
       })()}

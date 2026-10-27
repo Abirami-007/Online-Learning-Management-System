@@ -6,17 +6,22 @@ import { getLessonsByModuleId } from '../api/lessonApi';
 import { getAssessmentsByModuleId } from '../api/assessmentApi';
 import { useAuth } from '../context/AuthContext';
 import { useCourseProgress } from '../context/CourseProgressContext';
-import { createEnrollment, getMyEnrollments } from '../api/enrollmentApi';
 import { createCertificate } from '../api/certificateApi';
 
 export default function CourseDetailPage() {
   const { id } = useParams();
   const { user, isAuthenticated } = useAuth();
   const { 
+    isEnrolled,
+    enrollInCourse,
     getCompletedLessons, 
     getCourseProgress, 
     certifiedCourseIds, 
-    refreshCertificates 
+    refreshCertificates,
+    isModuleCompleted,
+    isModuleLocked,
+    isAssessmentPassed,
+    isLessonLocked
   } = useCourseProgress();
 
   const [course, setCourse] = useState(null);
@@ -26,10 +31,10 @@ export default function CourseDetailPage() {
   const [openModule, setOpenModule] = useState(null);
   const [loading, setLoading] = useState(true);
   const [enrollMsg, setEnrollMsg] = useState('');
-  const [isAlreadyEnrolled, setIsAlreadyEnrolled] = useState(false);
   const [claiming, setClaiming] = useState(false);
   const [claimError, setClaimError] = useState('');
 
+  const enrolled = isEnrolled(Number(id));
   const completedLessons = getCompletedLessons(Number(id));
   const courseProgress = getCourseProgress(Number(id));
 
@@ -37,14 +42,8 @@ export default function CourseDetailPage() {
     Promise.all([
       getCourseById(id),
       getModulesByCourseId(id).catch(() => ({ data: [] })),
-      getMyEnrollments().catch(() => ({ data: [] })),
-    ]).then(async ([courseRes, modulesRes, enrollRes]) => {
+    ]).then(async ([courseRes, modulesRes]) => {
       setCourse(courseRes.data);
-
-      // Check if already enrolled in this course
-      const enrollments = enrollRes.data || [];
-      const alreadyEnrolled = enrollments.some(e => String(e.courseId) === String(id));
-      setIsAlreadyEnrolled(alreadyEnrolled);
 
       const mods = (modulesRes.data || []).sort((a, b) => (a.moduleOrder || 0) - (b.moduleOrder || 0));
       setModules(mods);
@@ -76,12 +75,13 @@ export default function CourseDetailPage() {
 
   const handleEnroll = async () => {
     if (!isAuthenticated) { setEnrollMsg('Please sign in to enroll'); return; }
-    if (isAlreadyEnrolled) return;
+    if (enrolled) return;
     try {
-      await createEnrollment({ userId: user?.id || 1, courseId: parseInt(id) });
-      setIsAlreadyEnrolled(true);
+      await enrollInCourse(Number(id));
       setEnrollMsg('Enrolled successfully!');
-    } catch { setEnrollMsg('Enrollment failed or already enrolled'); }
+    } catch { 
+      setEnrollMsg('Enrollment failed or already enrolled'); 
+    }
   };
 
   const handleClaimCertificate = async () => {
@@ -141,14 +141,14 @@ export default function CourseDetailPage() {
             </div>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', minWidth: '180px' }}>
-            {isAlreadyEnrolled ? (
+            {enrolled ? (
               <>
                 <div style={{
                   display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 16px',
                   background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.4)',
                   borderRadius: '8px', color: '#10b981', fontWeight: 700, fontSize: '0.92rem'
                 }}>
-                  ✓ Already Enrolled
+                  ✓ Enrolled
                 </div>
                 <Link to={`/learn/${id}`} className="btn btn-primary btn-lg">Continue Learning →</Link>
 
@@ -199,7 +199,9 @@ export default function CourseDetailPage() {
             ) : (
               <>
                 <button className="btn btn-primary btn-lg" onClick={handleEnroll}>Enroll Now — Free</button>
-                <Link to={`/learn/${id}`} className="btn btn-secondary">Preview Course</Link>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center', marginTop: '4px' }}>
+                  🔒 Enrollment required to access course content
+                </div>
               </>
             )}
             {enrollMsg && <div className={`alert ${enrollMsg.includes('success') ? 'alert-success' : 'alert-warning'}`} style={{ marginBottom: 0 }}>{enrollMsg}</div>}
@@ -215,32 +217,34 @@ export default function CourseDetailPage() {
           const modLessons = moduleLessons[mod.id] || [];
           const modAssessments = moduleAssessments[mod.id] || [];
           const completedCount = modLessons.filter(l => completedLessons.includes(l.id)).length;
-          const isModDone = modLessons.length > 0 && completedCount === modLessons.length;
+          const isModDone = isModuleCompleted(Number(id), mod.id);
+          const isModLocked = isModuleLocked(Number(id), mod.id);
           const isOpen = openModule === mod.id;
 
           return (
-            <div key={mod.id} className="accordion-item" style={{ marginBottom: '12px', border: isModDone ? '1px solid rgba(16,185,129,0.4)' : '1px solid var(--border)' }}>
+            <div key={mod.id} className="accordion-item" style={{ marginBottom: '12px', border: isModDone ? '1px solid rgba(16,185,129,0.4)' : isModLocked ? '1px solid rgba(99,102,241,0.2)' : '1px solid var(--border)' }}>
               <div 
                 className="accordion-header" 
                 onClick={() => setOpenModule(isOpen ? null : mod.id)}
                 style={{
                   padding: '14px 18px',
-                  background: isModDone ? 'rgba(16,185,129,0.1)' : 'rgba(15,23,42,0.4)',
+                  background: isModDone ? 'rgba(16,185,129,0.1)' : isModLocked ? 'rgba(15,23,42,0.6)' : 'rgba(15,23,42,0.4)',
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
-                  gap: '12px'
+                  gap: '12px',
+                  opacity: isModLocked ? 0.8 : 1,
                 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <span style={{ 
                     fontSize: '0.75rem', 
                     fontWeight: 800, 
-                    color: isModDone ? '#10b981' : 'var(--primary)',
-                    background: isModDone ? 'rgba(16,185,129,0.2)' : 'rgba(79,70,229,0.15)',
+                    color: isModDone ? '#10b981' : isModLocked ? 'var(--text-muted)' : 'var(--primary)',
+                    background: isModDone ? 'rgba(16,185,129,0.2)' : isModLocked ? 'rgba(15,23,42,0.6)' : 'rgba(79,70,229,0.15)',
                     padding: '3px 8px',
                     borderRadius: '4px'
                   }}>
-                    Module {mod.moduleOrder || (idx + 1)}
+                    {isModLocked ? '🔒 ' : ''}Module {mod.moduleOrder || (idx + 1)}
                   </span>
                   <span style={{ fontSize: '0.95rem', fontWeight: 600 }}>{mod.title}</span>
                 </div>
@@ -249,6 +253,10 @@ export default function CourseDetailPage() {
                   {isModDone ? (
                     <span className="badge badge-success" style={{ fontSize: '0.72rem', padding: '3px 8px', fontWeight: 700 }}>
                       ✓ Module Completed
+                    </span>
+                  ) : isModLocked ? (
+                    <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                      🔒 Locked
                     </span>
                   ) : (
                     <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>

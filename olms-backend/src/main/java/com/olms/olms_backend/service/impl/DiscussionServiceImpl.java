@@ -1,4 +1,6 @@
-package com.olms.olms_backend.service;
+package com.olms.olms_backend.service.impl;
+
+import com.olms.olms_backend.service.*;
 
 import com.olms.olms_backend.entity.Discussion;
 import com.olms.olms_backend.repository.DiscussionRepository;

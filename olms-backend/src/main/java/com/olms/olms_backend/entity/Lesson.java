@@ -1,5 +1,7 @@
 package com.olms.olms_backend.entity;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.*;
 
 @Entity
@@ -18,6 +20,9 @@ public class Lesson {
     @Column(length = 10000)
     private String content;
 
+    @Column(name = "video_url")
+    @JsonProperty("videoUrl")
+    @JsonAlias({"video_url", "videoURL", "contentUrl", "url"})
     private String videoUrl;
 
     private int lessonOrder;
@@ -77,13 +82,26 @@ public class Lesson {
         this.content = content;
     }
 
+    @JsonProperty("videoUrl")
     public String getVideoUrl() {
         return videoUrl;
     }
 
+    @JsonProperty("video_url")
+    public String getVideoUrlSnake() {
+        return videoUrl;
+    }
+
+    @JsonProperty("videoUrl")
     public void setVideoUrl(String videoUrl) {
         this.videoUrl = videoUrl;
     }
+
+    @JsonProperty("video_url")
+    public void setVideoUrlSnake(String videoUrl) {
+        this.videoUrl = videoUrl;
+    }
+
 
     public int getLessonOrder() {
         return lessonOrder;

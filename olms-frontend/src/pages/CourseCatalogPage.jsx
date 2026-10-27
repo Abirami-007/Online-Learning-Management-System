@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { getAllCourses } from '../api/courseApi';
+import { useCourseProgress } from '../context/CourseProgressContext';
 
 export default function CourseCatalogPage() {
+  const { isEnrolled } = useCourseProgress();
   const [courses, setCourses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -59,6 +61,7 @@ export default function CourseCatalogPage() {
                 <h3>{course.title}</h3>
                 <p>{course.description}</p>
                 <div className="course-card-meta">
+                  {isEnrolled(course.id) && <span className="badge badge-success">✓ Enrolled</span>}
                   {course.category && <span className="badge badge-primary">{course.category}</span>}
                   {course.level && <span className="badge badge-secondary">{course.level}</span>}
                   {course.instructor && <span className="badge badge-warning">{course.instructor}</span>}

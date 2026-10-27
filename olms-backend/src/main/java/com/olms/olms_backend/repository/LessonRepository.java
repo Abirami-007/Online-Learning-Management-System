@@ -10,5 +10,8 @@ import java.util.List;
 public interface LessonRepository extends JpaRepository<Lesson, Long> {
 
     List<Lesson> findByModule_Id(Long moduleId);
+
+    List<Lesson> findByModule_IdOrderByLessonOrderAsc(Long moduleId);
 }
+
 

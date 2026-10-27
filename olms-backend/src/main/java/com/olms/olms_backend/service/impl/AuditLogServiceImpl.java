@@ -1,4 +1,6 @@
-package com.olms.olms_backend.service;
+package com.olms.olms_backend.service.impl;
+
+import com.olms.olms_backend.service.*;
 
 import com.olms.olms_backend.entity.AuditLog;
 import com.olms.olms_backend.repository.AuditLogRepository;
@@ -65,3 +67,4 @@ public class AuditLogServiceImpl implements AuditLogService {
         repository.delete(existing);
     }
 }
+

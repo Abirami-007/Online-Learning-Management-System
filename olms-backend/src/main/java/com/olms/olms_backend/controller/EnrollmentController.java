@@ -35,11 +35,28 @@ public class EnrollmentController {
     // GET MY ENROLLMENTS (current logged-in user)
     @GetMapping("/my")
     public ResponseEntity<List<Enrollment>> getMyEnrollments(
-            @RequestHeader("Authorization") String authHeader) {
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestParam(name = "userId", required = false) Long userIdParam) {
 
         return ResponseEntity.ok(
-                enrollmentService.getEnrollmentsForCurrentUser(authHeader)
+                enrollmentService.getEnrollmentsForCurrentUser(authHeader, userIdParam)
         );
+    }
+
+    // CHECK IF CURRENT USER IS ENROLLED IN A COURSE
+    @GetMapping("/check")
+    public ResponseEntity<?> checkEnrollment(
+            @RequestParam Long courseId,
+            @RequestHeader(value = "Authorization", required = false) String authHeader,
+            @RequestParam(name = "userId", required = false) Long userIdParam) {
+
+        try {
+            List<Enrollment> enrollments = enrollmentService.getEnrollmentsForCurrentUser(authHeader, userIdParam);
+            boolean enrolled = enrollments.stream().anyMatch(e -> e.getCourseId() != null && e.getCourseId().equals(courseId));
+            return ResponseEntity.ok(java.util.Map.of("enrolled", enrolled, "courseId", courseId));
+        } catch (Exception e) {
+            return ResponseEntity.ok(java.util.Map.of("enrolled", false, "courseId", courseId));
+        }
     }
     // GET ENROLLMENT BY ID
     @GetMapping("/{id}")
